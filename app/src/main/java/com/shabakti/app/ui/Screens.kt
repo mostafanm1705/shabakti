@@ -159,7 +159,7 @@ private fun HomeScreen(vm: MainViewModel) {
                     )
                 }
                 items(blockedOffline, key = { "blocked_$it" }) { mac ->
-                    BlockedRow(mac, vm.nickname(NetDevice(ip = null, mac = mac))) { vm.unblock(mac) }
+                    BlockedRow(mac, vm.blockedName(mac)) { vm.unblock(mac) }
                 }
             }
             item { Spacer(Modifier.height(24.dp)) }
@@ -458,6 +458,14 @@ private fun LoginDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                     "اسم المستخدم والباسورد بتوع صفحة الراوتر (مش باسورد الواي فاي). غالبًا مكتوبين على ستيكر ورا الراوتر.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (vm.brand == RouterBrand.TENDA) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "راوتر Tenda بيطلب الباسورد بس، سيب اسم المستخدم admin. لو عمرك ماغيّرته، جرّب باسورد الواي فاي أو admin.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(user, { user = it }, label = { Text("اسم المستخدم") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))

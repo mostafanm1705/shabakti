@@ -33,7 +33,7 @@ enum class RouterBrand(val title: String, val hasDriver: Boolean, val blockHelp:
         "من القايمة: Security ← MAC Filter أو Network ← WLAN Settings ← MAC Filter، والصق الـ MAC.",
     ),
     DLINK("D-Link", false, "من القايمة: Advanced ← MAC Address Filter (أو Network Filter) والصق الـ MAC."),
-    TENDA("Tenda", false, "افتح Connected Devices واضغط Block جنب الجهاز، أو Wi-Fi ← MAC Filter."),
+    TENDA("Tenda", true, "افتح إدارة الأجهزة (Connected Devices / Bandwidth Control) واقفل Internet Access للجهاز، أو Wi-Fi ← MAC Filter."),
     NETGEAR("Netgear", false, "Security ← Access Control ← Block، أو Attached Devices."),
     MIKROTIK("MikroTik", false, "Wireless ← Access List ← أضف الـ MAC مع إلغاء Authentication."),
     OPENWRT("OpenWrt", false, "Network ← Wireless ← Edit ← MAC-Filter ← Deny listed والصق الـ MAC."),
@@ -51,6 +51,9 @@ class UnsupportedOnRouter(what: String) : Exception(what)
 /** One implementation per router family. All calls run on a background thread. */
 interface RouterDriver {
     val brand: RouterBrand
+
+    /** True when [listDevices] also returns the router's own block list (devices with blocked=true). */
+    val reportsBlocked: Boolean get() = false
 
     /** Logs in; throws [RouterException] with an Arabic message on failure. */
     fun login(username: String, password: String)

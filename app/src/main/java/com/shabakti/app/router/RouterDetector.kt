@@ -42,6 +42,7 @@ object RouterDetector {
         return when (router.brand) {
             RouterBrand.HUAWEI_ONT -> HuaweiOntDriver(http)
             RouterBrand.ZTE -> ZteDriver(http)
+            RouterBrand.TENDA -> TendaDriver(http)
             else -> null
         }
     }

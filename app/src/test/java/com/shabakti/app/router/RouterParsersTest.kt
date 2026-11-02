@@ -91,6 +91,49 @@ class RouterParsersTest {
     }
 
     @Test
+    fun tendaQos() {
+        val json = """{"localhost":{"localhost":"192.168.0.105","lanMask":"255.255.255.0"},
+          "onlineList":[{"qosListHostname":"Unknown","qosListRemark":"Ahmed phone","qosListIP":"192.168.0.101","qosListConnectType":"wifi","qosListMac":"aa:bb:cc:00:00:01","qosListDownSpeed":"0.00","qosListUpSpeed":"0.00","qosListDownLimit":"4931584.00","qosListUpLimit":"4931584.00","qosListAccess":"true"},
+                        {"qosListHostname":"DESKTOP-9","qosListRemark":"","qosListIP":"192.168.0.102","qosListConnectType":"wires","qosListMac":"aa:bb:cc:00:00:02","qosListAccess":"true"}],
+          "blackList":[{"qosListHostname":"redmi","qosListRemark":"","qosListIP":"192.168.0.150","qosListConnectType":"wifi","qosListMac":"aa:bb:cc:00:00:03","qosListAccess":"false"}],
+          "macFilter":{"curFilterMode":"deny","macFilterList":[{"hostname":"x","remark":"","mac":"aa:bb:cc:00:00:09","filterMode":"pass"}]}}"""
+        val d = RouterParsers.parseTendaQos(json)
+        assertEquals(3, d.size)
+        assertEquals("Ahmed phone", d[0].hostName)
+        assertEquals(true, d[0].wifi)
+        assertEquals("DESKTOP-9", d[1].hostName)
+        assertEquals(false, d[1].wifi)
+        assertTrue(d[2].blocked)
+        assertEquals(false, d[2].online)
+        val rows = RouterParsers.parseTendaQosRows(json)
+        assertEquals(3, rows.size)
+        val enc = RouterParsers.encodeTendaQos(rows.map { if (it.mac == "AA:BB:CC:00:00:01") it.copy(allowed = false) else it })
+        assertEquals(
+            "Unknown\tAhmed phone\tAA:BB:CC:00:00:01\t0\t0\tfalse\n" +
+                "DESKTOP-9\t\tAA:BB:CC:00:00:02\t38528\t38528\ttrue\n" +
+                "redmi\t\tAA:BB:CC:00:00:03\t0\t0\tfalse",
+            enc,
+        )
+        assertEquals(0, RouterParsers.tendaErrCode("{\"errCode\":0}"))
+        assertEquals(100, RouterParsers.tendaErrCode("{\"errCode\":\"100\"}"))
+    }
+
+    @Test
+    fun tendaAcOnlineList() {
+        val json = """[{"blackNum":12492040,"macFilterType":"black","localhostIP":"192.168.0.2","isWirelessConnect":"false","localhostName":"Device-11","localhostMac":"02:00:00:00:00:02"},{"deviceId":"02:00:00:00:00:04","ip":"192.168.0.151","devName":"Galaxy-A54","line":"1","uploadSpeed":"5","downloadSpeed":"144","linkType":"unknown","black":0,"isGuestClient":"false"},{"deviceId":"02:00:00:00:00:06","ip":"192.168.0.169","devName":"","line":"0","black":1,"isGuestClient":"false"}]"""
+        val (host, d) = RouterParsers.parseTendaOnlineList(json)
+        assertEquals("02:00:00:00:00:02", host)
+        assertEquals(2, d.size)
+        assertEquals("Galaxy-A54", d[0].hostName)
+        assertEquals(true, d[0].wifi)
+        assertNull(d[1].hostName)
+        assertTrue(d[1].blocked)
+        val b = RouterParsers.parseTendaBlackRules("""[{"deviceId":"02:00:00:00:00:09","devName":"tv"}]""")
+        assertEquals("tv", b[0].hostName)
+        assertEquals("ed076287532e86365e841e92bfc50d8c", RouterParsers.md5Hex("Hello World!"))
+    }
+
+    @Test
     fun sha() {
         assertEquals(
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",

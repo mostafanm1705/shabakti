@@ -78,6 +78,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun nickname(d: NetDevice): String? = prefs.nickname(d.key)
 
+    /** Best known name for a blocked MAC (custom name, else the router's name). */
+    fun blockedName(mac: String): String? =
+        prefs.nickname(mac.uppercase()) ?: routerDevices.firstOrNull { it.mac == mac.uppercase() }?.hostName
+
     fun rename(d: NetDevice, name: String) {
         prefs.setNickname(d.key, name)
         nickVersion++
@@ -180,6 +184,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         try {
             routerDevices = routerLock.withLock { withContext(Dispatchers.IO) { d.listDevices() } }
             DebugLog.add("Router reported ${routerDevices.size} devices")
+            if (d.reportsBlocked) {
+                // The router is the source of truth for its own block list.
+                val routerBlocked = routerDevices.filter { it.blocked }.map { it.mac }.toSet()
+                prefs.blocked().filter { it !in routerBlocked }.forEach { prefs.setBlocked(it, false) }
+                routerBlocked.forEach { prefs.setBlocked(it, true) }
+                blocked = prefs.blocked()
+            }
         } catch (e: Exception) {
             routerMessage = e.message
             if (e is RouterException && e.message?.contains("جلسة") == true) {
@@ -193,6 +204,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val w = wifi
         val byKey = linkedMapOf<String, NetDevice>()
         for (r in routerDevices) {
+            if (r.blocked && !r.online) continue
             byKey[r.mac] = NetDevice(
                 ip = r.ip,
                 mac = r.mac,

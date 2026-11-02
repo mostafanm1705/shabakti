@@ -19,6 +19,7 @@ object RouterParsers {
         val hostName: String?,
         val online: Boolean,
         val wifi: Boolean?,
+        val blocked: Boolean = false,
     )
 
     fun sha256Hex(s: String): String =
@@ -220,6 +221,103 @@ object RouterParsers {
         }
         return out
     }
+
+    // ---------------------------------------------------------------- Tenda
+
+    /** Flat JSON objects ({...} without nesting) inside the array stored under [key]. */
+    private fun jsonArrayObjects(json: String, key: String?): List<String> {
+        val area = if (key == null) json else
+            Regex(""""$key"\s*:\s*\[(.*?)\]""", RegexOption.DOT_MATCHES_ALL).find(json)?.groupValues?.get(1)
+                ?: return emptyList()
+        return Regex("""\{[^{}]*\}""").findAll(area).map { it.value }.toList()
+    }
+
+    private fun jsonAny(obj: String, key: String): String? =
+        Regex(""""$key"\s*:\s*(?:"((?:[^"\\]|\\.)*)"|(-?[\w.]+))""").find(obj)?.let { m ->
+            m.groups[1]?.value?.let(::unescapeJs) ?: m.groups[2]?.value
+        }
+
+    private fun cleanName(vararg names: String?): String? =
+        names.firstOrNull { !it.isNullOrBlank() && !it.equals("Unknown", true) && it != "--" }?.trim()
+
+    /** Newer Tenda firmware (F3/N301/F6/AC5/AC6 V12, "ecos"): GET /goform/getQos. */
+    fun parseTendaQos(json: String): List<RawDevice> {
+        val out = mutableListOf<RawDevice>()
+        fun rows(key: String, blocked: Boolean) {
+            for (o in jsonArrayObjects(json, key)) {
+                val mac = jsonAny(o, "qosListMac")?.takeIf { MAC.matches(it) } ?: continue
+                out.add(
+                    RawDevice(
+                        mac = normalizeMac(mac),
+                        ip = jsonAny(o, "qosListIP")?.takeIf { IPV4.matches(it) },
+                        hostName = cleanName(jsonAny(o, "qosListRemark"), jsonAny(o, "qosListHostname")),
+                        online = !blocked,
+                        wifi = when (jsonAny(o, "qosListConnectType")?.lowercase()) {
+                            "wifi" -> true; "wires", "wire", "wired" -> false; else -> null
+                        },
+                        blocked = blocked || jsonAny(o, "qosListAccess") == "false",
+                    )
+                )
+            }
+        }
+        rows("onlineList", false)
+        rows("blackList", true)
+        return out
+    }
+
+    /** One row of the qosList string that /goform/setQos expects (tab separated). */
+    data class TendaQosRow(val hostName: String, val remark: String, val mac: String, val allowed: Boolean)
+
+    fun parseTendaQosRows(json: String): List<TendaQosRow> {
+        val out = linkedMapOf<String, TendaQosRow>()
+        for ((key, blocked) in listOf("onlineList" to false, "blackList" to true)) {
+            for (o in jsonArrayObjects(json, key)) {
+                val mac = jsonAny(o, "qosListMac")?.takeIf { MAC.matches(it) } ?: continue
+                out[normalizeMac(mac)] = TendaQosRow(
+                    hostName = jsonAny(o, "qosListHostname") ?: "Unknown",
+                    remark = jsonAny(o, "qosListRemark").orEmpty(),
+                    mac = normalizeMac(mac),
+                    allowed = !blocked && jsonAny(o, "qosListAccess") != "false",
+                )
+            }
+        }
+        return out.values.toList()
+    }
+
+    fun encodeTendaQos(rows: List<TendaQosRow>): String = rows.joinToString("\n") { r ->
+        val limit = if (r.allowed) "38528" else "0"
+        listOf(r.hostName, r.remark, r.mac, limit, limit, r.allowed.toString()).joinToString("\t")
+    }
+
+    /** Tenda AC series (AC6/AC10/AC15/AC23 V15+): GET /goform/getOnlineList, first element = admin host. */
+    fun parseTendaOnlineList(json: String): Pair<String?, List<RawDevice>> {
+        val objs = jsonArrayObjects(json, null)
+        val hostMac = objs.firstOrNull()?.let { jsonAny(it, "localhostMac") }?.let(::normalizeMac)
+        val devices = objs.mapNotNull { o ->
+            val mac = jsonAny(o, "deviceId")?.takeIf { MAC.matches(it) } ?: return@mapNotNull null
+            val black = jsonAny(o, "black")
+            RawDevice(
+                mac = normalizeMac(mac),
+                ip = jsonAny(o, "ip")?.takeIf { IPV4.matches(it) },
+                hostName = cleanName(jsonAny(o, "devName")),
+                online = true,
+                wifi = when (jsonAny(o, "line")) { "0" -> false; "1", "2" -> true; else -> null },
+                blocked = black == "1" || black == "true",
+            )
+        }
+        return hostMac to devices
+    }
+
+    fun parseTendaBlackRules(json: String): List<RawDevice> =
+        jsonArrayObjects(json, null).mapNotNull { o ->
+            val mac = jsonAny(o, "deviceId")?.takeIf { MAC.matches(it) } ?: return@mapNotNull null
+            RawDevice(normalizeMac(mac), null, cleanName(jsonAny(o, "devName")), online = false, wifi = null, blocked = true)
+        }
+
+    fun tendaErrCode(json: String): Int? = jsonAny(json, "errCode")?.toIntOrNull()
+
+    fun md5Hex(s: String): String =
+        MessageDigest.getInstance("MD5").digest(s.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
     // ---------------------------------------------------------------- Detection
 
